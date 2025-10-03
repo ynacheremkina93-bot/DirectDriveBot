@@ -119,10 +119,58 @@ export const notifyDriversAboutOrderTool = createTool({
   execute: async ({ context, mastra }) => {
     const logger = mastra?.getLogger();
     const { orderId, fromAddress, toAddress, suggestedPrice, passengerName, passengerRating } = context;
-    
+
     logger?.info('🔧 [NotifyDriversAboutOrder] Отправка уведомлений водителям', {
       orderId
     });
+
+    try {
+      // Получаем онлайн и верифицированных водителей
+      const onlineDrivers = await db.select().from(drivers).where(
+        and(eq(drivers.isOnline, true), eq(drivers.isVerified, true))
+      );
+
+      const message = `🚗 *Новый заказ!*\n\n` +
+        `📍 *Маршрут:* ${fromAddress} → ${toAddress}\n` +
+        `💰 *Предлагаемая цена:* ${suggestedPrice} руб.\n` +
+        `👤 *Пассажир:* ${passengerName} (⭐ ${passengerRating})\n\n` +
+        `Хотите сделать предложение?`;
+
+      let sentCount = 0;
+      for (const driver of onlineDrivers) {
+        // Отправляем сообщение через инструмент отправки Telegram
+        const result = await sendTelegramMessageTool.execute({
+          context: {
+            chatId: driver.telegramId,
+            message,
+            parseMode: "Markdown"
+          },
+          mastra,
+          runtimeContext: null as any,
+        });
+        if (result.success) sentCount++;
+      }
+
+      logger?.info('✅ [NotifyDriversAboutOrder] Уведомления отправлены', {
+        notifiedCount: sentCount
+      });
+
+      return {
+        success: true,
+        notifiedCount: sentCount,
+        message: `Уведомления отправлены ${sentCount} водителям.`
+      };
+
+    } catch (error) {
+      logger?.error('❌ [NotifyDriversAboutOrder] Ошибка отправки уведомлений', { error });
+      return {
+        success: false,
+        notifiedCount: 0,
+        message: "Произошла ошибка при отправке уведомлений."
+      };
+    }
+  },
+});
     
     try {
       // Здесь должен быть код для получения списка онлайн водителей из базы
